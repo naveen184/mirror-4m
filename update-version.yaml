@@ -1,0 +1,51 @@
+name: Update Version
+
+# Run this action every hour on the hour.
+on:
+  schedule:
+    - cron: "0 * * * *"
+
+jobs:
+  update-version:
+    name: Update Version
+    runs-on: ubuntu-latest
+    steps:
+    
+      # Check out the latest code on `main`
+      - uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0
+
+      # Fetch the latest GitHub release of the core library repository
+      - name: Get latest release
+        uses: rez0n/actions-github-release@main
+        id: version
+        env:
+          token: ${{ secrets.GH_TOKEN }}
+          repository: "Salable/pricing-table-js-lib"
+          type: "latest"
+
+      # Format the latest release version from above into 'x.x.x' format
+      - name: Format latest version
+        id: latest
+        run: "version='${{ steps.version.outputs.release }}' && echo ::set-output name=version::${version/'v'/''} && mkdir params && echo ${version/'v'/''} > params/VERSION"
+
+      # Get the current version used in the wrapper package from the root file containing it.
+      - name: Read currentVersion from constants.ts file
+        id: currentVersion
+        run: echo "::set-output name=version::$(head -1 ./constants.ts | awk '{ print $5; }' | sed "s/'//g" | sed 's/.$//')"
+
+      # Compare the versions and update the constants file to the new version if required.
+      - name: Compare versions
+        if: steps.latest.outputs.version > steps.currentVersion.outputs.version
+        run: echo "$(sed -i -e 's/${{steps.currentVersion.outputs.version}}/${{steps.latest.outputs.version}}/g' ./constants.ts)"
+
+      # Commit the change and push to `main` if version has changed.
+      - name: Push changes
+        if: steps.latest.outputs.version > steps.currentVersion.outputs.version
+        run: |
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@github.com'
+          git commit -am "feat: bumped core library version to ${{steps.latest.outputs.version}}"
+          git push
